@@ -17,6 +17,7 @@ class Run extends Model
         'status',
         'expires_at',
         'pickup_image_path',
+        'payment_instructions',
     ];
 
     /**
@@ -70,5 +71,13 @@ class Run extends Model
     public function chats()
     {
         return $this->hasMany(RunChat::class);
+    }
+
+    /**
+     * Get the activities for the run.
+     */
+    public function activities()
+    {
+        return $this->hasMany(RunActivity::class);
     }
 }

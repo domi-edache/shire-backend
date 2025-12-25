@@ -19,6 +19,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        \App\Models\Run::observe(\App\Observers\RunObserver::class);
+        \App\Models\RunCommitment::observe(\App\Observers\RunCommitmentObserver::class);
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController; // Added
+use App\Http\Controllers\Api\OnboardingController; // Added
 use App\Http\Controllers\Api\RunController;
 use App\Http\Controllers\Api\RunItemController;
 use App\Http\Controllers\Api\CommitmentController;
@@ -9,9 +11,18 @@ use App\Http\Controllers\Api\SocialController;
 use App\Http\Controllers\Api\HandshakeController;
 use Illuminate\Support\Facades\Route;
 
+// --- PUBLIC ROUTES (No Token Needed) ---
+Route::post('/auth/social', [AuthController::class, 'socialLogin']);
+
+// --- PROTECTED ROUTES (Token Required) ---
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Onboarding
+    Route::post('/onboarding', [OnboardingController::class, 'store']);
+
     // Runs
     Route::get('/runs', [RunController::class, 'index']);
+    Route::get('/runs/{run}', [RunController::class, 'show']);
     Route::post('/runs', [RunController::class, 'store']);
 
     // Run Items
