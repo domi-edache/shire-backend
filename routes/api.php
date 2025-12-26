@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 
 // --- PUBLIC ROUTES (No Token Needed) ---
 Route::post('/auth/social', [AuthController::class, 'socialLogin']);
+Route::get('/auth/check-handle', [AuthController::class, 'checkHandle']);
 
 // --- PROTECTED ROUTES (Token Required) ---
 Route::middleware('auth:sanctum')->group(function () {
