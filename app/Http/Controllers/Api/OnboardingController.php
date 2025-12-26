@@ -26,6 +26,9 @@ class OnboardingController extends Controller
             'image' => 'nullable|image|max:5120', // Max 5MB
             'device_lat' => 'nullable|numeric',
             'device_lng' => 'nullable|numeric',
+        ], [
+            'handle.unique' => 'That handle is already taken. Try another?',
+            'required' => 'Don\'t forget your :attribute!',
         ]);
 
         $user = $request->user();
@@ -53,40 +56,51 @@ class OnboardingController extends Controller
             $user->avatar_path = $path;
         }
 
+        $warning = null;
         // 4. Real Geocoding (The Real Magic)
         $postcode = str_replace(' ', '', $user->postcode);
         try {
             $response = Http::get("https://api.postcodes.io/postcodes/{$postcode}");
 
-            if (!$response->successful()) {
+            if ($response->successful()) {
+                $result = $response->json('result');
+                $latitude = $result['latitude'];
+                $longitude = $result['longitude'];
+                $user->location = DB::raw("ST_GeomFromText('POINT($longitude $latitude)', 4326)");
+            } elseif ($response->status() === 404) {
+                // User typo - this SHOULD block them
                 throw ValidationException::withMessages([
-                    'postcode' => ['The provided postcode could not be found. Please enter a valid UK postcode.'],
+                    'postcode' => ['Hmm, we can\'t find that postcode.'],
                 ]);
+            } else {
+                // Other API error (500, etc) - trigger graceful degradation
+                throw new \Exception("Postcodes.io returned status: " . $response->status());
             }
-
-            $result = $response->json('result');
-            $latitude = $result['latitude'];
-            $longitude = $result['longitude'];
-
-            // Save to PostGIS location column
-            $user->location = DB::raw("ST_GeomFromText('POINT($longitude $latitude)', 4326)");
         } catch (\Exception $e) {
+            // If it's a validation exception (404), re-throw it
             if ($e instanceof ValidationException)
                 throw $e;
 
-            \Illuminate\Support\Facades\Log::error('Geocoding failed: ' . $e->getMessage());
-            // Fallback: if API is down, we might want to allow it or fail. 
-            // For now, let's fail to ensure data integrity.
-            throw ValidationException::withMessages([
-                'postcode' => ['Unable to verify postcode at this time. Please try again later.'],
-            ]);
+            // Log the technical error for debugging
+            \Illuminate\Support\Facades\Log::warning('Geocoding service unreachable, falling back: ' . $e->getMessage());
+            $warning = "We couldn't pinpoint your location, but you're all signed up! You can update your postcode later in Profile.";
+
+            // GRACEFUL DEGRADATION
+            // Fallback 1: Use Device GPS if available
+            if ($request->device_lat && $request->device_lng) {
+                $user->location = DB::raw("ST_GeomFromText('POINT({$request->device_lng} {$request->device_lat})', 4326)");
+            } else {
+                // Fallback 2: Default to Central London (POINT(-0.1278 51.5074))
+                $user->location = DB::raw("ST_GeomFromText('POINT(-0.1278 51.5074)', 4326)");
+            }
         }
 
         $user->save();
 
         return response()->json([
             'message' => 'Profile setup complete',
-            'user' => $user->fresh()
+            'user' => $user->fresh(),
+            'warning' => $warning
         ]);
     }
 }

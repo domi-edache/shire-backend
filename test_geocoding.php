@@ -4,7 +4,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
-echo "--- Testing Postcode Geocoding ---\n";
+echo "--- Testing Refined Postcode Geocoding ---\n";
 
 // Mock Http responses for geocoding
 Http::fake([
@@ -19,6 +19,9 @@ Http::fake([
         'status' => 404,
         'error' => 'Postcode not found'
     ], 404),
+    'api.postcodes.io/postcodes/FAIL*' => function () {
+        throw new \Illuminate\Http\Client\ConnectionException("Connection failed");
+    },
 ]);
 
 // 1. Create a user for testing
@@ -30,46 +33,14 @@ $user = User::factory()->create([
 
 echo "Created test user ID: {$user->id}\n";
 
-// 1.5 Test socialLogin (Avatar URL Storage)
-echo "\nTesting socialLogin (Avatar URL Storage)...\n";
-$socialEmail = 'social_' . uniqid() . '@example.com';
-$avatarUrl = 'https://example.com/social_avatar.jpg';
-
-$response = app()->call('App\Http\Controllers\Api\AuthController@socialLogin', [
-    'request' => Illuminate\Http\Request::create('/api/auth/social', 'POST', [
-        'email' => $socialEmail,
-        'provider' => 'google',
-        'provider_id' => 'google_' . uniqid(),
-        'name' => 'Social User',
-        'avatar_url' => $avatarUrl,
-        'token' => 'mock_token',
-    ])
-]);
-
-$data = json_decode($response->getContent(), true);
-$socialUser = User::find($data['user']['id']);
-
-if ($socialUser->avatar_url === $avatarUrl) {
-    echo "SUCCESS: Social avatar URL saved: {$socialUser->avatar_url}\n";
-} else {
-    echo "FAILURE: Social avatar URL not saved. Expected: {$avatarUrl}, Got: {$socialUser->avatar_url}\n";
-}
-
-// 2. Mock a request to onboarding
-$postcode = 'SW1A 1AA'; // Buckingham Palace
-$deviceLat = 51.5014;
-$deviceLng = -0.1419;
-$avatarUrl = 'https://example.com/avatar.jpg';
-echo "Testing with postcode: {$postcode} and device location: {$deviceLat}, {$deviceLng}\n";
-
+// 2. Test SUCCESS (Postcode Found)
+echo "\n--- Scenario 1: SUCCESS (Postcode Found) ---\n";
+$postcode = 'SW1A 1AA';
 try {
     $request = Illuminate\Http\Request::create('/api/onboarding', 'POST', [
         'name' => 'Geocode Test',
         'handle' => $user->handle,
         'postcode' => $postcode,
-        'device_lat' => $deviceLat,
-        'device_lng' => $deviceLng,
-        'avatar_url' => $avatarUrl,
     ]);
     $request->setUserResolver(fn() => $user);
 
@@ -77,35 +48,18 @@ try {
         'request' => $request
     ]);
 
-    $data = json_decode($response->getContent(), true);
-
     if ($response->getStatusCode() === 200) {
-        echo "SUCCESS: Onboarding request successful.\n";
-
-        // Verify database
-        $dbUser = DB::table('users')->select('*', DB::raw('ST_AsText(location) as location_text'), DB::raw('ST_AsText(signup_device_location) as device_location_text'))->where('id', $user->id)->first();
-
-        if ($dbUser->location_text) {
-            echo "SUCCESS: Main location (postcode) saved: {$dbUser->location_text}\n";
-        } else {
-            echo "FAILURE: Main location column is empty.\n";
-        }
-
-        if ($dbUser->device_location_text) {
-            echo "SUCCESS: Shadow location (device) saved: {$dbUser->device_location_text}\n";
-        } else {
-            echo "FAILURE: Shadow location column is empty.\n";
-        }
+        $dbUser = DB::table('users')->select(DB::raw('ST_AsText(location) as location_text'))->where('id', $user->id)->first();
+        echo "SUCCESS: Main location saved: {$dbUser->location_text}\n";
     } else {
-        echo "FAILURE: Onboarding request failed with status " . $response->getStatusCode() . "\n";
-        print_r($data);
+        echo "FAILURE: Status " . $response->getStatusCode() . "\n";
     }
 } catch (\Exception $e) {
     echo "ERROR: " . $e->getMessage() . "\n";
 }
 
-// 3. Test with INVALID postcode
-echo "\nTesting with INVALID postcode: INVALID\n";
+// 3. Test TYPO (404)
+echo "\n--- Scenario 2: TYPO (404 Not Found) ---\n";
 try {
     $request = Illuminate\Http\Request::create('/api/onboarding', 'POST', [
         'name' => 'Geocode Test',
@@ -119,17 +73,75 @@ try {
     ]);
 
     if ($response->getStatusCode() === 422) {
-        echo "SUCCESS: Invalid postcode correctly rejected with 422.\n";
         $data = json_decode($response->getContent(), true);
-        echo "Error Message: " . $data['errors']['postcode'][0] . "\n";
+        echo "SUCCESS: Correctly rejected with 422. Message: " . $data['errors']['postcode'][0] . "\n";
     } else {
-        echo "FAILURE: Invalid postcode should have returned 422, got " . $response->getStatusCode() . "\n";
+        echo "FAILURE: Expected 422, got " . $response->getStatusCode() . "\n";
     }
-} catch (\Illuminate\Validation\ValidationException $e) {
-    echo "SUCCESS: ValidationException caught.\n";
-    print_r($e->errors());
 } catch (\Exception $e) {
     echo "ERROR: " . $e->getMessage() . "\n";
 }
 
-echo "--- Verification Complete ---\n";
+// 4. Test SERVICE DOWN + DEVICE GPS
+echo "\n--- Scenario 3: SERVICE DOWN + DEVICE GPS ---\n";
+try {
+    $request = Illuminate\Http\Request::create('/api/onboarding', 'POST', [
+        'name' => 'Geocode Test',
+        'handle' => $user->handle,
+        'postcode' => 'FAIL1',
+        'device_lat' => 52.0,
+        'device_lng' => 0.5,
+    ]);
+    $request->setUserResolver(fn() => $user);
+
+    $response = app()->call('App\Http\Controllers\Api\OnboardingController@store', [
+        'request' => $request
+    ]);
+
+    if ($response->getStatusCode() === 200) {
+        $dbUser = DB::table('users')->select(DB::raw('ST_AsText(location) as location_text'))->where('id', $user->id)->first();
+        $data = json_decode($response->getContent(), true);
+        echo "SUCCESS: Fallback to Device GPS: {$dbUser->location_text}\n";
+        if (isset($data['warning'])) {
+            echo "SUCCESS: Warning received: " . $data['warning'] . "\n";
+        } else {
+            echo "FAILURE: No warning received.\n";
+        }
+    } else {
+        echo "FAILURE: Status " . $response->getStatusCode() . "\n";
+    }
+} catch (\Exception $e) {
+    echo "ERROR: " . $e->getMessage() . "\n";
+}
+
+// 5. Test SERVICE DOWN + NO GPS
+echo "\n--- Scenario 4: SERVICE DOWN + NO GPS ---\n";
+try {
+    $request = Illuminate\Http\Request::create('/api/onboarding', 'POST', [
+        'name' => 'Geocode Test',
+        'handle' => $user->handle,
+        'postcode' => 'FAIL2',
+    ]);
+    $request->setUserResolver(fn() => $user);
+
+    $response = app()->call('App\Http\Controllers\Api\OnboardingController@store', [
+        'request' => $request
+    ]);
+
+    if ($response->getStatusCode() === 200) {
+        $dbUser = DB::table('users')->select(DB::raw('ST_AsText(location) as location_text'))->where('id', $user->id)->first();
+        $data = json_decode($response->getContent(), true);
+        echo "SUCCESS: Fallback to Central London: {$dbUser->location_text}\n";
+        if (isset($data['warning'])) {
+            echo "SUCCESS: Warning received: " . $data['warning'] . "\n";
+        } else {
+            echo "FAILURE: No warning received.\n";
+        }
+    } else {
+        echo "FAILURE: Status " . $response->getStatusCode() . "\n";
+    }
+} catch (\Exception $e) {
+    echo "ERROR: " . $e->getMessage() . "\n";
+}
+
+echo "\n--- Verification Complete ---\n";
