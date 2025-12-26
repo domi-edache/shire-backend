@@ -30,6 +30,8 @@ class User extends Authenticatable
         'address_line_1',
         'postcode',
         'avatar_path',
+        'avatar_url',
+        'signup_device_location',
     ];
 
     /**

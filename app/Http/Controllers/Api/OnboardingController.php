@@ -24,6 +24,8 @@ class OnboardingController extends Controller
             'postcode' => 'required|string',
             'address_line_1' => 'nullable|string',
             'image' => 'nullable|image|max:5120', // Max 5MB
+            'device_lat' => 'nullable|numeric',
+            'device_lng' => 'nullable|numeric',
         ]);
 
         $user = $request->user();
@@ -34,7 +36,12 @@ class OnboardingController extends Controller
         $user->postcode = $request->postcode;
         $user->address_line_1 = $request->address_line_1;
 
-        // 3. Handle Image Upload
+        // 3. Shadow Location Logic (Fraud/Analytics)
+        if ($request->device_lat && $request->device_lng) {
+            $user->signup_device_location = DB::raw("ST_GeomFromText('POINT({$request->device_lng} {$request->device_lat})', 4326)");
+        }
+
+        // 4. Handle Image Upload
         if ($request->hasFile('image')) {
             $path = $request->file('image')->store('avatars', 'public');
 

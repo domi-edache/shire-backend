@@ -39,6 +39,7 @@ class AuthController extends Controller
 
         // 5. Handle Avatar Download
         if ($request->avatar_url) {
+            $user->avatar_url = $request->avatar_url; // Save raw URL
             try {
                 $response = \Illuminate\Support\Facades\Http::get($request->avatar_url);
                 if ($response->successful()) {
