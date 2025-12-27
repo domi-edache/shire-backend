@@ -35,9 +35,12 @@ class RunStatusController extends Controller
         // Update status using service
         $updatedRun = $this->runStateService->updateStatus($run, $validated['status']);
 
-        return response()->json([
-            'message' => 'Status updated successfully',
-            'data' => $updatedRun
-        ]);
+        // Load relationships for resource
+        $updatedRun->load(['user', 'items']);
+
+        // Set a default distance string for the response
+        $updatedRun->distance_string = "Updated";
+
+        return new \App\Http\Resources\RunResource($updatedRun);
     }
 }

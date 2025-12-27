@@ -17,28 +17,49 @@ class RunController extends Controller
     {
         $user = $request->user();
 
-        // Get user's location coordinates
-        $location = DB::selectOne(
-            "SELECT ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM users WHERE id = ?",
-            [$user->id]
-        );
+        // 1. Determine Coordinates (Request > User Profile)
+        $lat = $request->query('lat');
+        $lng = $request->query('lng');
 
-        if (!$location || !$location->lat || !$location->lng) {
+        if (!$lat || !$lng) {
+            $location = DB::selectOne(
+                "SELECT ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM users WHERE id = ?",
+                [$user->id]
+            );
+            $lat = $location->lat ?? null;
+            $lng = $location->lng ?? null;
+        }
+
+        if (!$lat || !$lng) {
             return response()->json([
-                'message' => 'User location not set',
+                'message' => 'Location coordinates required',
                 'data' => []
             ], 200);
         }
 
-        // Query runs within 2000 meters using the nearby scope
+        $radius = $request->query('radius', 2000);
+
+        // 2. Query runs within radius using the nearby scope
+        // Filter by status: prepping or live
         $runs = Run::query()
-            ->nearby($location->lat, $location->lng, 2000)
+            ->select('*')
+            ->selectRaw(
+                "ST_Distance(location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) as distance_meters",
+                [$lng, $lat]
+            )
+            ->whereIn('status', ['prepping', 'live'])
+            ->nearby($lat, $lng, $radius)
             ->with(['user', 'items'])
+            ->orderBy('distance_meters')
             ->get();
 
-        return response()->json([
-            'data' => $runs
-        ]);
+        // 3. Attach distance string for the Resource to use
+        $runs->each(function ($run) {
+            $km = round($run->distance_meters / 1000, 1);
+            $run->distance_string = "{$km}km away";
+        });
+
+        return RunResource::collection($runs);
     }
 
     /**
@@ -79,12 +100,11 @@ class RunController extends Controller
         }
 
         // 2. Handle Instructions
-        $pickupInstructions = $user->default_pickup_instructions;
+        $pickupInstructions = $request->pickup_instructions ?? $user->default_pickup_instructions;
 
         if ($request->filled('pickup_instructions')) {
             $user->default_pickup_instructions = $request->pickup_instructions;
             $user->save();
-            $pickupInstructions = $request->pickup_instructions;
         }
 
         // 3. Get user's location
@@ -110,36 +130,30 @@ class RunController extends Controller
             'pickup_image_path' => $pickupImagePath,
             'pickup_instructions' => $pickupInstructions,
             'payment_instructions' => $validated['payment_instructions'] ?? null,
+            'location' => $userLocation->location, // Direct assignment from DB select
         ]);
-
-        // Copy user's location to the run
-        DB::statement(
-            "UPDATE runs SET location = (SELECT location FROM users WHERE id = ?) WHERE id = ?",
-            [$user->id, $run->id]
-        );
 
         // 5. Handle Anchor Item (The Bulk Split)
         if ($request->filled('anchor_title')) {
-            $costPerUnit = round($validated['anchor_total_cost'] / $validated['anchor_slots'], 2);
-
             $run->items()->create([
-                'user_id' => $user->id,
-                'name' => $validated['anchor_title'],
+                'run_id' => $run->id,
+                'title' => $validated['anchor_title'],
                 'type' => 'bulk_split',
                 'units_total' => $validated['anchor_slots'],
-                'units_allocated' => 0, // Starts empty
-                'cost_per_unit' => $costPerUnit,
-                'image_path' => null, // Optional for anchor items
+                'units_filled' => 0,
+                'cost' => $validated['anchor_total_cost'],
+                'status' => 'pending',
             ]);
         }
 
         // Reload to get the location and items
         $run->refresh();
-        $run->load('items');
+        $run->load(['user', 'items']);
 
-        return response()->json([
-            'data' => $run
-        ], 201);
+        // Set distance to 0 for the creator
+        $run->distance_string = "0.0km away";
+
+        return new RunResource($run);
     }
 
     /**

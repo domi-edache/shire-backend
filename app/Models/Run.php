@@ -17,7 +17,11 @@ class Run extends Model
         'status',
         'expires_at',
         'pickup_image_path',
+        'pickup_instructions',
         'payment_instructions',
+        'runner_fee',
+        'runner_fee_type',
+        'location',
     ];
 
     /**

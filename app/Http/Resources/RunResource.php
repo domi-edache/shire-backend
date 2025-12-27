@@ -14,32 +14,38 @@ class RunResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $bulkSplit = $this->items->where('type', 'bulk_split')->first();
+
         return [
-            'id' => $this->id,
-            'user_id' => $this->user_id,
+            'id' => (string) $this->id,
             'store_name' => $this->store_name,
             'status' => $this->status,
-            'expires_at' => $this->expires_at,
-            'pickup_image_path' => $this->pickup_image_path,
-            'payment_instructions' => $this->payment_instructions,
-            'user' => $this->whenLoaded('user'),
-            'items' => $this->whenLoaded('items'),
-            'activity_feed' => $this->activities()
-                ->with('user')
-                ->latest()
-                ->limit(20)
-                ->get()
-                ->map(function ($activity) {
-                    return [
-                        'id' => $activity->id,
-                        'type' => $activity->type,
-                        'user_id' => $activity->user_id,
-                        'user_name' => $activity->user ? $activity->user->name : 'System',
-                        'message' => $this->formatActivityMessage($activity),
-                        'metadata' => $activity->metadata,
-                        'created_at' => $activity->created_at,
-                    ];
-                }),
+            'distance' => $this->distance_string ?? 'Unknown distance',
+            'expires_at' => $this->expires_at?->toIso8601String(),
+
+            // Shallow Embedded Host (Mini-Profile)
+            'host' => [
+                'id' => $this->user->id,
+                'name' => $this->user->name,
+                'avatar_url' => $this->user->profile_photo_url,
+                'trust_score' => $this->user->trust_score,
+                'handle' => $this->user->handle,
+            ],
+
+            // Shallow Embedded Bulk Split (The Hook)
+            'bulk_split' => $bulkSplit ? [
+                'title' => $bulkSplit->title,
+                'price_per_slot' => $bulkSplit->units_total > 0
+                    ? (float) ($bulkSplit->cost / $bulkSplit->units_total)
+                    : (float) $bulkSplit->cost,
+                'total_slots' => (int) $bulkSplit->units_total,
+                'taken_slots' => (int) $bulkSplit->units_filled,
+                'progress' => $bulkSplit->units_total > 0
+                    ? round(($bulkSplit->units_filled / $bulkSplit->units_total) * 100)
+                    : 0,
+            ] : null,
+
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 
