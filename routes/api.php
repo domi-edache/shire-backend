@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\RunStatusController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\SocialController;
 use App\Http\Controllers\Api\HandshakeController;
+use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
 // --- PUBLIC ROUTES (No Token Needed) ---
@@ -17,6 +18,9 @@ Route::get('/auth/check-handle', [AuthController::class, 'checkHandle']);
 
 // --- PROTECTED ROUTES (Token Required) ---
 Route::middleware('auth:sanctum')->group(function () {
+
+    // User Profile
+    Route::get('/me', [UserController::class, 'me']);
 
     // Onboarding
     Route::post('/onboarding', [OnboardingController::class, 'store']);

@@ -32,6 +32,9 @@ class User extends Authenticatable
         'avatar_path',
         'avatar_url',
         'signup_device_location',
+        'trust_score',
+        'hauls_hosted',
+        'hauls_joined',
     ];
 
     /**
@@ -109,5 +112,25 @@ class User extends Authenticatable
         }
 
         return 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&color=7F9CF5&background=EBF4FF';
+    }
+
+    /**
+     * Get the count of hauls hosted by this user.
+     */
+    public function getHaulsHostedAttribute()
+    {
+        return $this->runs()->count();
+    }
+
+    /**
+     * Get the count of hauls joined by this user.
+     */
+    public function getHaulsJoinedAttribute()
+    {
+        // Count distinct runs that the user has commitments for
+        return $this->commitments()
+            ->join('run_items', 'run_commitments.run_item_id', '=', 'run_items.id')
+            ->distinct('run_items.run_id')
+            ->count('run_items.run_id');
     }
 }
