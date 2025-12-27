@@ -159,9 +159,30 @@ class RunController extends Controller
     /**
      * Display the specified run.
      */
-    public function show(Run $run)
+    public function show(Request $request, Run $run)
     {
-        $run->load(['user', 'items.commitments', 'activities.user']);
+        $user = $request->user();
+
+        // Get user's location coordinates
+        $location = DB::selectOne(
+            "SELECT ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM users WHERE id = ?",
+            [$user->id]
+        );
+
+        if ($location && $location->lat && $location->lng) {
+            // Calculate distance
+            $distance = DB::selectOne(
+                "SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) as dist FROM runs WHERE id = ?",
+                [$location->lng, $location->lat, $run->id]
+            );
+
+            if ($distance) {
+                $km = round($distance->dist / 1000, 1);
+                $run->distance_string = "{$km}km away";
+            }
+        }
+
+        $run->load(['user', 'items.commitments']);
 
         return new RunResource($run);
     }

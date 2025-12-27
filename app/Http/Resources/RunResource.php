@@ -45,32 +45,36 @@ class RunResource extends JsonResource
                     : 0,
             ] : null,
 
+            // Detailed Information (Full View)
+            'pickup_instructions' => $this->pickup_instructions,
+            'payment_instructions' => $this->payment_instructions,
+            'runner_fee' => (float) $this->runner_fee,
+            'runner_fee_type' => $this->runner_fee_type,
+
+            'items' => $this->whenLoaded('items', function () {
+                return $this->items->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'title' => $item->title,
+                        'type' => $item->type,
+                        'cost' => (float) $item->cost,
+                        'units_total' => (int) $item->units_total,
+                        'units_filled' => (int) $item->units_filled,
+                        'status' => $item->status,
+                        'commitments' => $item->relationLoaded('commitments') ? $item->commitments->map(function ($commitment) {
+                            return [
+                                'id' => $commitment->id,
+                                'user_id' => $commitment->user_id,
+                                'user_name' => $commitment->user ? $commitment->user->name : 'Someone',
+                                'quantity' => (int) $commitment->quantity,
+                                'status' => $commitment->status,
+                            ];
+                        }) : [],
+                    ];
+                });
+            }),
+
             'created_at' => $this->created_at?->toIso8601String(),
         ];
-    }
-
-    /**
-     * Format the activity message into a human-readable string.
-     */
-    protected function formatActivityMessage($activity): string
-    {
-        $userName = $activity->user ? $activity->user->name : 'Someone';
-
-        switch ($activity->type) {
-            case 'user_joined':
-                $slots = $activity->metadata['slots'] ?? 0;
-                return "{$userName} joined with {$slots} slots";
-            case 'payment_marked':
-                return "{$userName} marked payment sent";
-            case 'payment_confirmed':
-                return "{$userName} confirmed payment received";
-            case 'status_change':
-                $newStatus = $activity->metadata['new'] ?? 'unknown';
-                return "Run status changed to {$newStatus}";
-            case 'comment':
-                return "{$userName} left a comment";
-            default:
-                return "Activity: {$activity->type}";
-        }
     }
 }

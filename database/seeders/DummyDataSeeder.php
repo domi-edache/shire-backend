@@ -30,9 +30,39 @@ class DummyDataSeeder extends Seeder
             ['title' => 'Avocado Case (24ct)', 'cost' => 35, 'slots' => 8],
         ];
 
-        $this->command->info("Generating 15 sample users and hauls...");
+        $this->command->info("Cleaning up old sample data...");
+        // Delete users that start with 'user_' handle or have 'Sample User' in name
+        $oldUsers = User::where('name', 'like', 'Sample User%')
+            ->orWhere('handle', 'like', 'user_%')
+            ->get();
 
-        for ($i = 1; $i <= 15; $i++) {
+        foreach ($oldUsers as $oldUser) {
+            $oldUser->runs()->delete();
+            $oldUser->delete();
+        }
+
+        $names = [
+            ['name' => 'Alice Chen', 'handle' => 'alice_c'],
+            ['name' => 'Marcus Thorne', 'handle' => 'mthorne'],
+            ['name' => 'Sarah Jenkins', 'handle' => 'sarah_j'],
+            ['name' => 'David O\'Connell', 'handle' => 'dave_oc'],
+            ['name' => 'Priya Sharma', 'handle' => 'priya_s'],
+            ['name' => 'Liam Gallagher', 'handle' => 'liam_g'],
+            ['name' => 'Elena Rodriguez', 'handle' => 'elena_r'],
+            ['name' => 'Kofi Mensah', 'handle' => 'kofi_m'],
+            ['name' => 'Sophie Bennett', 'handle' => 'sophie_b'],
+            ['name' => 'Jackson Reed', 'handle' => 'j_reed'],
+            ['name' => 'Maya Patel', 'handle' => 'maya_p'],
+            ['name' => 'Oliver Twist', 'handle' => 'oliver_t'],
+            ['name' => 'Isabella Garcia', 'handle' => 'isabella_g'],
+            ['name' => 'Noah Williams', 'handle' => 'noah_w'],
+            ['name' => 'Emma Watson', 'handle' => 'emma_w'],
+        ];
+
+        $this->command->info("Generating 15 real-world users and hauls...");
+
+        foreach ($names as $index => $data) {
+            $i = $index + 1;
             $isNearby = $i <= 10;
 
             // Generate location
@@ -46,16 +76,13 @@ class DummyDataSeeder extends Seeder
                 $lat = $domLat + (mt_rand(100, 200) / 1000) * (mt_rand(0, 1) ? 1 : -1);
             }
 
-            $name = "Sample User " . $i;
-            $handle = "user_" . Str::lower(Str::random(5));
-
             $user = User::create([
-                'name' => $name,
-                'email' => "user{$i}_" . Str::random(5) . "@example.com",
+                'name' => $data['name'],
+                'email' => Str::slug($data['name']) . "_" . Str::random(3) . "@example.com",
                 'password' => bcrypt('password'),
-                'handle' => $handle,
+                'handle' => $data['handle'],
                 'postcode' => $isNearby ? 'E1 6AN' : 'SW1A 1AA',
-                'address_line_1' => 'Sample Street ' . $i,
+                'address_line_1' => 'Street ' . $i,
                 'trust_score' => mt_rand(35, 50) / 10,
             ]);
 
@@ -90,9 +117,9 @@ class DummyDataSeeder extends Seeder
                 'status' => 'pending',
             ]);
 
-            $this->command->info("Created user '{$handle}' with haul at '{$store}' (" . ($isNearby ? "NEARBY" : "FAR") . ")");
+            $this->command->info("Created user '{$data['handle']}' with haul at '{$store}' (" . ($isNearby ? "NEARBY" : "FAR") . ")");
         }
 
-        $this->command->info("\n✅ Done! 15 users and hauls generated.");
+        $this->command->info("\n✅ Done! 15 users and hauls generated with real names.");
     }
 }
