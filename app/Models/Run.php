@@ -22,6 +22,7 @@ class Run extends Model
         'runner_fee',
         'runner_fee_type',
         'location',
+        'is_taking_requests',
     ];
 
     /**
@@ -33,6 +34,7 @@ class Run extends Model
     {
         return [
             'expires_at' => 'datetime',
+            'is_taking_requests' => 'boolean',
         ];
     }
 

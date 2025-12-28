@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Run;
+use App\Models\RunItem;
+use App\Models\RunCommitment;
+use App\Models\RunActivity;
 use App\Http\Resources\RunResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -73,11 +76,13 @@ class RunController extends Controller
             'pickup_image' => 'nullable|file|image|max:10240', // 10MB max
             'pickup_instructions' => 'nullable|string',
             'payment_instructions' => 'nullable|string',
+            'is_taking_requests' => 'nullable|boolean',
 
             // Anchor Item (Optional)
             'anchor_title' => 'nullable|string|max:255',
             'anchor_total_cost' => 'nullable|numeric|min:0|required_with:anchor_title',
             'anchor_slots' => 'nullable|integer|min:1|required_with:anchor_title',
+            'host_slots' => 'nullable|integer|min:1|lte:anchor_slots',
         ]);
 
         $user = $request->user();
@@ -99,11 +104,18 @@ class RunController extends Controller
             ], 422);
         }
 
-        // 2. Handle Instructions
-        $pickupInstructions = $request->pickup_instructions ?? $user->default_pickup_instructions;
-
+        // 2. Handle Instructions (The Memory)
         if ($request->filled('pickup_instructions')) {
             $user->default_pickup_instructions = $request->pickup_instructions;
+        }
+        $pickupInstructions = $request->pickup_instructions ?? $user->default_pickup_instructions;
+
+        if ($request->filled('payment_instructions')) {
+            $user->default_payment_instructions = $request->payment_instructions;
+        }
+        $paymentInstructions = $request->payment_instructions ?? $user->default_payment_instructions;
+
+        if ($user->isDirty()) {
             $user->save();
         }
 
@@ -119,41 +131,80 @@ class RunController extends Controller
             ], 400);
         }
 
-        // 4. Create the run
-        $run = Run::create([
-            'user_id' => $user->id,
-            'store_name' => $validated['store_name'],
-            'expires_at' => now()->addMinutes($validated['expires_in']),
-            'status' => 'prepping',
-            'runner_fee' => 0, // Constraint: Free for V1
-            'runner_fee_type' => 'free',
-            'pickup_image_path' => $pickupImagePath,
-            'pickup_instructions' => $pickupInstructions,
-            'payment_instructions' => $validated['payment_instructions'] ?? null,
-            'location' => $userLocation->location, // Direct assignment from DB select
-        ]);
+        try {
+            $run = DB::transaction(function () use ($user, $validated, $pickupImagePath, $pickupInstructions, $paymentInstructions, $userLocation, $request) {
+                // 4. Create the run
+                $expiresIn = (int) ($validated['expires_in'] ?? 60);
 
-        // 5. Handle Anchor Item (The Bulk Split)
-        if ($request->filled('anchor_title')) {
-            $run->items()->create([
-                'run_id' => $run->id,
-                'title' => $validated['anchor_title'],
-                'type' => 'bulk_split',
-                'units_total' => $validated['anchor_slots'],
-                'units_filled' => 0,
-                'cost' => $validated['anchor_total_cost'],
-                'status' => 'pending',
+                $run = Run::create([
+                    'user_id' => $user->id,
+                    'store_name' => $validated['store_name'],
+                    'expires_at' => now()->addMinutes($expiresIn),
+                    'status' => 'prepping',
+                    'runner_fee' => 0, // Constraint: Free for V1
+                    'runner_fee_type' => 'free',
+                    'pickup_image_path' => $pickupImagePath,
+                    'pickup_instructions' => $pickupInstructions,
+                    'payment_instructions' => $paymentInstructions,
+                    'is_taking_requests' => $request->boolean('is_taking_requests'),
+                    'location' => $userLocation->location,
+                ]);
+
+                // 5. Handle Anchor Item (The Bulk Split)
+                if ($request->filled('anchor_title')) {
+                    $hostSlots = $validated['host_slots'] ?? 1;
+
+                    $item = $run->items()->create([
+                        'title' => $validated['anchor_title'],
+                        'type' => 'bulk_split',
+                        'units_total' => $validated['anchor_slots'],
+                        'units_filled' => $hostSlots,
+                        'cost' => $validated['anchor_total_cost'],
+                        'status' => 'pending',
+                    ]);
+
+                    // 6. Auto-Commit the Host
+                    RunCommitment::create([
+                        'run_item_id' => $item->id,
+                        'user_id' => $user->id,
+                        'quantity' => $hostSlots,
+                        'total_amount' => 0, // Host doesn't pay themselves
+                        'status' => 'confirmed',
+                        'payment_status' => 'confirmed',
+                    ]);
+
+                    // 7. Log Activity
+                    $run->activities()->create([
+                        'user_id' => $user->id,
+                        'type' => 'host_auto_join',
+                        'metadata' => [
+                            'slots' => $hostSlots,
+                            'item_title' => $item->title,
+                        ],
+                    ]);
+                }
+
+                return $run;
+            });
+
+            // Reload to get the location and items
+            $run->load(['user', 'items']);
+            $run->distance_string = "0.0km away";
+
+            return new RunResource($run);
+
+        } catch (\Exception $e) {
+            \Log::error('Haul creation failed: ' . $e->getMessage(), [
+                'exception' => $e,
+                'request' => $request->all(),
+                'user_id' => $user->id
             ]);
+
+            return response()->json([
+                'message' => 'Failed to create haul',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        // Reload to get the location and items
-        $run->refresh();
-        $run->load(['user', 'items']);
-
-        // Set distance to 0 for the creator
-        $run->distance_string = "0.0km away";
-
-        return new RunResource($run);
     }
 
     /**

@@ -35,6 +35,9 @@ class RunActivityResource extends JsonResource
             case 'user_joined':
                 $slots = $this->metadata['slots'] ?? 0;
                 return "{$userName} joined with {$slots} slots";
+            case 'host_auto_join':
+                $slots = $this->metadata['slots'] ?? 0;
+                return "Host created the haul (keeping {$slots} slots)";
             case 'payment_marked':
                 return "{$userName} marked payment sent";
             case 'payment_confirmed':

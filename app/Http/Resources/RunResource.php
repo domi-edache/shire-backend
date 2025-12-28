@@ -22,6 +22,8 @@ class RunResource extends JsonResource
             'status' => $this->status,
             'distance' => $this->distance_string ?? 'Unknown distance',
             'expires_at' => $this->expires_at?->toIso8601String(),
+            'is_taking_requests' => (bool) $this->is_taking_requests,
+            'pickup_image_url' => $this->pickup_image_path ? asset('storage/' . $this->pickup_image_path) : null,
 
             // Shallow Embedded Host (Mini-Profile)
             'host' => [

@@ -30,6 +30,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/runs', [RunController::class, 'index']);
     Route::post('/runs', [RunController::class, 'store']);
     Route::get('/runs/{run}', [RunController::class, 'show']);
+
+    Route::get('/hauls', [RunController::class, 'index']);
+    Route::post('/hauls', [RunController::class, 'store']);
+    Route::get('/hauls/{run}', [RunController::class, 'show']);
     Route::get('/runs/{run}/activities', [RunActivityController::class, 'index']);
     Route::post('/runs/{run}/status', [RunStatusController::class, 'update']);
 

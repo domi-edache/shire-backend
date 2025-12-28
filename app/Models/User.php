@@ -35,6 +35,9 @@ class User extends Authenticatable
         'trust_score',
         'hauls_hosted',
         'hauls_joined',
+        'default_pickup_image_path',
+        'default_pickup_instructions',
+        'default_payment_instructions',
     ];
 
     /**
