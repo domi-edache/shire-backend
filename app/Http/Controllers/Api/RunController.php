@@ -207,9 +207,6 @@ class RunController extends Controller
         }
     }
 
-    /**
-     * Display the specified run.
-     */
     public function show(Request $request, Run $run)
     {
         $user = $request->user();
@@ -233,8 +230,127 @@ class RunController extends Controller
             }
         }
 
-        $run->load(['user', 'items.commitments']);
+        // Load relationships needed for privacy logic and participants list
+        $run->load(['user', 'items.commitments.user']);
+
+        // Check if I have a commitment (My Status)
+        // We look through all items -> commitments to find one belonging to the auth user.
+        $myCommitment = null;
+        foreach ($run->items as $item) {
+            $commitment = $item->commitments->where('user_id', $user->id)->first();
+            if ($commitment) {
+                $myCommitment = $commitment;
+                break;
+            }
+        }
+        $run->my_commitment = $myCommitment;
 
         return new RunResource($run);
+    }
+
+    /**
+     * Display runs that the authenticated user is involved in.
+     */
+    public function myHauls(Request $request)
+    {
+        $user = $request->user();
+
+        // 1. Find runs where user is host OR has a commitment
+        $runs = Run::query()
+            ->where('user_id', $user->id)
+            ->orWhereHas('items.commitments', function ($query) use ($user) {
+                $query->where('user_id', $user->id);
+            })
+            ->with(['user', 'items.commitments.user'])
+            // 2. Sort Logic: Active statuses first, then by recency
+            ->orderByRaw("
+                CASE 
+                    WHEN status IN ('prepping', 'live', 'heading_back', 'arrived') THEN 1
+                    ELSE 2
+                END ASC
+            ")
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // 3. Attach my_commitment for each run (so RunResource can pick it up)
+        $runs->each(function ($run) use ($user) {
+            $myCommitment = null;
+            foreach ($run->items as $item) {
+                $commitment = $item->commitments->where('user_id', $user->id)->first();
+                if ($commitment) {
+                    $myCommitment = $commitment;
+                    break;
+                }
+            }
+            $run->my_commitment = $myCommitment;
+            $run->distance_string = $run->user_id === $user->id ? "Hosting" : "Joined";
+        });
+
+        return RunResource::collection($runs);
+    }
+
+    /**
+     * Cancel/Delete a run (Host only).
+     */
+    public function destroy(Request $request, Run $run)
+    {
+        $user = $request->user();
+
+        // Only the host can cancel
+        if ($run->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'Unauthorized. Only the host can cancel this haul.'
+            ], 403);
+        }
+
+        // Safety Check: Check for confirmed payments from OTHER users
+        $run->load('items.commitments');
+        $hasConfirmedPayments = false;
+
+        foreach ($run->items as $item) {
+            foreach ($item->commitments as $commitment) {
+                // Skip host's own commitment
+                if ($commitment->user_id === $run->user_id) {
+                    continue;
+                }
+                // Check for confirmed status
+                if ($commitment->status === 'confirmed') {
+                    $hasConfirmedPayments = true;
+                    break 2;
+                }
+            }
+        }
+
+        if ($hasConfirmedPayments) {
+            return response()->json([
+                'message' => 'You cannot cancel. You have confirmed payments. Please refund/remove users first.'
+            ], 422);
+        }
+
+        try {
+            DB::transaction(function () use ($run, $user) {
+                // Log activity before deletion
+                RunActivity::create([
+
+                    'run_id' => $run->id,
+                    'user_id' => $user->id,
+                    'type' => 'run_cancelled',
+                    'metadata' => [
+                        'store_name' => $run->store_name,
+                    ],
+                ]);
+
+                // Delete the run (cascading deletes items, commitments, chats, activities)
+                $run->delete();
+            });
+
+            return response()->json(['message' => 'Haul cancelled successfully'], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to cancel haul',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

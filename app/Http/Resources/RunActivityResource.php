@@ -42,6 +42,12 @@ class RunActivityResource extends JsonResource
                 return "{$userName} marked payment sent";
             case 'payment_confirmed':
                 return "{$userName} confirmed payment received";
+            case 'user_left':
+                $targetName = $this->metadata['target_user_name'] ?? 'A user';
+                return "{$targetName} left the haul";
+            case 'user_kicked':
+                $targetName = $this->metadata['target_user_name'] ?? 'A user';
+                return "Host removed {$targetName}";
             case 'status_change':
                 $newStatus = $this->metadata['new'] ?? 'unknown';
                 return "Run status changed to {$newStatus}";

@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // User Profile
     Route::get('/me', [UserController::class, 'me']);
+    Route::get('/me/hauls', [RunController::class, 'myHauls']);
 
     // Onboarding
     Route::post('/onboarding', [OnboardingController::class, 'store']);
@@ -34,6 +35,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/hauls', [RunController::class, 'index']);
     Route::post('/hauls', [RunController::class, 'store']);
     Route::get('/hauls/{run}', [RunController::class, 'show']);
+    Route::delete('/hauls/{run}', [RunController::class, 'destroy']);
     Route::get('/runs/{run}/activities', [RunActivityController::class, 'index']);
     Route::post('/runs/{run}/status', [RunStatusController::class, 'update']);
 
@@ -42,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Commitments
     Route::post('/items/{item}/commit', [CommitmentController::class, 'store']);
+    Route::delete('/commitments/{commitment}', [CommitmentController::class, 'destroy']);
 
 
     // Chat

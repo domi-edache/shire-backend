@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\RunItem;
 use App\Models\RunCommitment;
+use App\Models\RunActivity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -60,6 +61,71 @@ class CommitmentController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to create commitment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove a commitment (Leave or Kick).
+     */
+    public function destroy(Request $request, RunCommitment $commitment)
+    {
+        $user = $request->user();
+        $item = $commitment->item;
+        $run = $item->run;
+
+        // Authorization Logic
+        $isOwner = $commitment->user_id === $user->id;
+        $isHost = $run->user_id === $user->id;
+        $isHostCommitment = $commitment->user_id === $run->user_id;
+
+        // Host cannot kick themselves (they must cancel the run)
+        if ($isHost && $isHostCommitment) {
+            return response()->json([
+                'message' => 'Host cannot leave their own haul. Cancel the haul instead.'
+            ], 403);
+        }
+
+        // Allow if owner (leaving) or host (kicking)
+        if (!$isOwner && !$isHost) {
+            return response()->json([
+                'message' => 'Unauthorized'
+            ], 403);
+        }
+
+        try {
+            DB::transaction(function () use ($commitment, $item, $run, $user, $isOwner) {
+                // Decrement units_filled
+                $item->decrement('units_filled', $commitment->quantity);
+
+                // Log Activity
+                $targetUserName = $commitment->user ? $commitment->user->name : 'A user';
+                $activityType = $isOwner ? 'user_left' : 'user_kicked';
+                $message = $isOwner
+                    ? "{$targetUserName} left the haul"
+                    : "Host removed {$targetUserName}";
+
+                RunActivity::create([
+                    'run_id' => $run->id,
+                    'user_id' => $user->id,
+                    'type' => $activityType,
+                    'metadata' => [
+                        'target_user_id' => $commitment->user_id,
+                        'target_user_name' => $targetUserName,
+                        'quantity' => $commitment->quantity,
+                    ],
+                ]);
+
+                // Delete the commitment
+                $commitment->delete();
+            });
+
+            return response()->json(['message' => 'Commitment removed successfully'], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to remove commitment',
                 'error' => $e->getMessage()
             ], 500);
         }

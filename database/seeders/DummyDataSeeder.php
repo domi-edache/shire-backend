@@ -30,17 +30,6 @@ class DummyDataSeeder extends Seeder
             ['title' => 'Avocado Case (24ct)', 'cost' => 35, 'slots' => 8],
         ];
 
-        $this->command->info("Cleaning up old sample data...");
-        // Delete users that start with 'user_' handle or have 'Sample User' in name
-        $oldUsers = User::where('name', 'like', 'Sample User%')
-            ->orWhere('handle', 'like', 'user_%')
-            ->get();
-
-        foreach ($oldUsers as $oldUser) {
-            $oldUser->runs()->delete();
-            $oldUser->delete();
-        }
-
         $names = [
             ['name' => 'Alice Chen', 'handle' => 'alice_c'],
             ['name' => 'Marcus Thorne', 'handle' => 'mthorne'],
@@ -59,9 +48,33 @@ class DummyDataSeeder extends Seeder
             ['name' => 'Emma Watson', 'handle' => 'emma_w'],
         ];
 
-        $this->command->info("Generating 15 real-world users and hauls...");
+        $this->command->info("Cleaning up old sample data...");
 
-        foreach ($names as $index => $data) {
+        $sampleHandles = array_column($names, 'handle');
+        $sampleNames = array_column($names, 'name');
+
+        $oldUsers = User::whereIn('handle', $sampleHandles)
+            ->orWhereIn('name', $sampleNames)
+            ->orWhere('name', 'like', 'Sample User%')
+            ->orWhere('handle', 'like', 'user_%')
+            ->get();
+
+        foreach ($oldUsers as $oldUser) {
+            // Soft deletes might be enabled, so we use forceDelete if we want them gone
+            // But let's check if the method exists first or just delete
+            if (method_exists($oldUser, 'forceDelete')) {
+                $oldUser->runs()->forceDelete();
+                $oldUser->forceDelete();
+            } else {
+                $oldUser->runs()->delete();
+                $oldUser->delete();
+            }
+        }
+
+
+        $this->command->info("Generating 5 real-world users and hauls...");
+
+        foreach (array_slice($names, 0, 5) as $index => $data) {
             $i = $index + 1;
             $isNearby = $i <= 10;
 
@@ -120,6 +133,6 @@ class DummyDataSeeder extends Seeder
             $this->command->info("Created user '{$data['handle']}' with haul at '{$store}' (" . ($isNearby ? "NEARBY" : "FAR") . ")");
         }
 
-        $this->command->info("\n✅ Done! 15 users and hauls generated with real names.");
+        $this->command->info("\n✅ Done! 5 users and hauls generated with real names.");
     }
 }

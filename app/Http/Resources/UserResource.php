@@ -33,6 +33,11 @@ class UserResource extends JsonResource
             'trust_score' => $this->trust_score,
             'hauls_hosted' => $this->hauls_hosted,
             'hauls_joined' => $this->hauls_joined,
+            'default_payment_instructions' => $this->default_payment_instructions,
+            'default_pickup_instructions' => $this->default_pickup_instructions,
+            'default_pickup_image_url' => $this->default_pickup_image_path
+                ? asset('storage/' . $this->default_pickup_image_path)
+                : null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
