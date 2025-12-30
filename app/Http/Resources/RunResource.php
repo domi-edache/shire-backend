@@ -15,6 +15,7 @@ class RunResource extends JsonResource
     public function toArray(Request $request): array
     {
         $user = $request->user();
+        $isGuest = !$user;
         $bulkSplit = $this->items->where('type', 'bulk_split')->first();
 
         // 1. Determine Context
@@ -23,28 +24,30 @@ class RunResource extends JsonResource
         $isConfirmed = $myCommitment && in_array($myCommitment->status, ['confirmed', 'paid_marked']);
 
         // 2. Privacy Logic (The Gatekeeper)
-        $canSeeDetails = $isHost || $isConfirmed;
+        // Guests and non-confirmed users cannot see sensitive details
+        $canSeeDetails = !$isGuest && ($isHost || $isConfirmed);
 
-        // 3. Location Logic
-        // If hidden, show vague location (Postcode Sector e.g., "SW1A")
-        // If visible, show exact coordinates (or at least provide them to the map)
-        $locationData = null; // Default to null if standard GET request doesn't need geometry
-        // Note: The controller already computed 'distance_string'.
-        // Ideally we might want to return a vague string if !canSeeDetails
-
-        $fuzzyLocation = "Nearby"; // Default
-        // In a real app we might extract the postcode sector from the user's address or use a geocoding trick.
-        // For now, let's just say "Private Location" if hidden.
+        // 3. Location Logic - fuzzy for guests/non-confirmed
+        $fuzzyLocation = null;
+        if ($isGuest) {
+            // Extract postcode district (e.g., "E8 1AA" -> "E8")
+            $postcode = $this->user->postcode ?? '';
+            preg_match('/^([A-Z]{1,2}\d{1,2})/', strtoupper($postcode), $matches);
+            $fuzzyLocation = $matches[1] ?? 'London';
+        } elseif (!$canSeeDetails) {
+            $fuzzyLocation = 'Visible to participants';
+        }
 
         return [
             'id' => (string) $this->id,
             'store_name' => $this->store_name,
             'status' => $this->status,
-            'distance' => $this->distance_string ?? 'Unknown distance',
+            'distance' => $isGuest ? null : ($this->distance_string ?? 'Unknown distance'),
             'expires_at' => $this->expires_at?->toIso8601String(),
             'is_taking_requests' => (bool) $this->is_taking_requests,
 
             // Context Flags
+            'is_guest' => $isGuest,
             'is_host' => $isHost,
             'can_cancel' => $isHost && $this->calculateCanCancel(),
             'my_commitment' => $myCommitment ? [
@@ -52,6 +55,9 @@ class RunResource extends JsonResource
                 'status' => $myCommitment->payment_status === 'unpaid' ? 'pending_payment' : $myCommitment->payment_status,
                 'quantity' => (int) $myCommitment->quantity,
                 'total_amount' => (float) $myCommitment->total_amount,
+                'can_leave' => $myCommitment->payment_status === 'unpaid'
+                    && $myCommitment->created_at > now()->subMinutes(30),
+                'leave_window_expires_at' => $myCommitment->created_at->addMinutes(30)->toIso8601String(),
             ] : null,
 
             // Privacy-Protected Fields
@@ -64,7 +70,7 @@ class RunResource extends JsonResource
             'payment_instructions' => $canSeeDetails
                 ? $this->payment_instructions
                 : null,
-            'fuzzy_location' => !$canSeeDetails ? 'Visible to participants' : null,
+            'fuzzy_location' => $fuzzyLocation,
 
             // Shallow Embedded Host (Mini-Profile)
             'host' => [

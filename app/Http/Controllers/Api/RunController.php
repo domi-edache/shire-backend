@@ -209,41 +209,44 @@ class RunController extends Controller
 
     public function show(Request $request, Run $run)
     {
-        $user = $request->user();
+        $user = $request->user(); // null for guests
 
-        // Get user's location coordinates
-        $location = DB::selectOne(
-            "SELECT ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM users WHERE id = ?",
-            [$user->id]
-        );
-
-        if ($location && $location->lat && $location->lng) {
-            // Calculate distance
-            $distance = DB::selectOne(
-                "SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) as dist FROM runs WHERE id = ?",
-                [$location->lng, $location->lat, $run->id]
+        // Distance calculation only for authenticated users
+        if ($user) {
+            $location = DB::selectOne(
+                "SELECT ST_Y(location::geometry) as lat, ST_X(location::geometry) as lng FROM users WHERE id = ?",
+                [$user->id]
             );
 
-            if ($distance) {
-                $km = round($distance->dist / 1000, 1);
-                $run->distance_string = "{$km}km away";
-            }
-        }
+            if ($location && $location->lat && $location->lng) {
+                $distance = DB::selectOne(
+                    "SELECT ST_Distance(location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) as dist FROM runs WHERE id = ?",
+                    [$location->lng, $location->lat, $run->id]
+                );
 
-        // Load relationships needed for privacy logic and participants list
-        $run->load(['user', 'items.commitments.user']);
-
-        // Check if I have a commitment (My Status)
-        // We look through all items -> commitments to find one belonging to the auth user.
-        $myCommitment = null;
-        foreach ($run->items as $item) {
-            $commitment = $item->commitments->where('user_id', $user->id)->first();
-            if ($commitment) {
-                $myCommitment = $commitment;
-                break;
+                if ($distance) {
+                    $km = round($distance->dist / 1000, 1);
+                    $run->distance_string = "{$km}km away";
+                }
             }
+
+            // Load relationships and check for my commitment
+            $run->load(['user', 'items.commitments.user']);
+            $myCommitment = null;
+            foreach ($run->items as $item) {
+                $commitment = $item->commitments->where('user_id', $user->id)->first();
+                if ($commitment) {
+                    $myCommitment = $commitment;
+                    break;
+                }
+            }
+            $run->my_commitment = $myCommitment;
+        } else {
+            // Guest: no distance, no commitment
+            $run->distance_string = null;
+            $run->my_commitment = null;
+            $run->load(['user', 'items.commitments.user']);
         }
-        $run->my_commitment = $myCommitment;
 
         return new RunResource($run);
     }

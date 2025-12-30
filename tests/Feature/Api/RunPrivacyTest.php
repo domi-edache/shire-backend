@@ -88,6 +88,7 @@ class RunPrivacyTest extends TestCase
             'user_id' => $participant->id,
             'quantity' => 1,
             'status' => 'confirmed',
+            'payment_status' => 'confirmed',
             'total_amount' => 10,
         ]);
 
@@ -97,5 +98,31 @@ class RunPrivacyTest extends TestCase
             ->assertJsonPath('data.is_host', false)
             ->assertJsonPath('data.my_commitment.status', 'confirmed')
             ->assertJsonPath('data.pickup_instructions', 'Secret Code: 1234');
+    }
+
+    public function test_unauthenticated_guest_can_view_haul_teaser()
+    {
+        $host = User::factory()->create(['postcode' => 'E8 1AA']);
+        $this->setupUserLocation($host);
+
+        $run = Run::create([
+            'user_id' => $host->id,
+            'store_name' => 'Guest Test Store',
+            'expires_at' => now()->addHour(),
+            'status' => 'live',
+            'pickup_instructions' => 'Secret Code: 1234',
+            'location' => DB::raw("ST_SetSRID(ST_MakePoint(-0.1278, 51.5074), 4326)::geography"),
+        ]);
+
+        // No authentication (guest request)
+        $response = $this->getJson("/api/hauls/{$run->id}");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.is_guest', true)
+            ->assertJsonPath('data.is_host', false)
+            ->assertJsonPath('data.pickup_instructions', null)
+            ->assertJsonPath('data.fuzzy_location', 'E8')
+            ->assertJsonPath('data.store_name', 'Guest Test Store')
+            ->assertJsonPath('data.distance', null);
     }
 }

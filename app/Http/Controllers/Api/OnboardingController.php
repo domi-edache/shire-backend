@@ -97,6 +97,38 @@ class OnboardingController extends Controller
 
         $user->save();
 
+        // Log initial profile values to history
+        \App\Models\UserProfileChange::create([
+            'user_id' => $user->id,
+            'field' => 'name',
+            'old_value' => null,
+            'new_value' => $user->name,
+            'trigger' => 'onboarding',
+        ]);
+        \App\Models\UserProfileChange::create([
+            'user_id' => $user->id,
+            'field' => 'handle',
+            'old_value' => null,
+            'new_value' => $user->handle,
+            'trigger' => 'onboarding',
+        ]);
+        \App\Models\UserProfileChange::create([
+            'user_id' => $user->id,
+            'field' => 'postcode',
+            'old_value' => null,
+            'new_value' => $user->postcode,
+            'trigger' => 'onboarding',
+        ]);
+        if ($user->avatar_path) {
+            \App\Models\UserProfileChange::create([
+                'user_id' => $user->id,
+                'field' => 'avatar',
+                'old_value' => null,
+                'new_value' => $user->avatar_path,
+                'trigger' => 'onboarding',
+            ]);
+        }
+
         return response()->json([
             'message' => 'Profile setup complete',
             'user' => $user->fresh(),

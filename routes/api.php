@@ -17,12 +17,23 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/social', [AuthController::class, 'socialLogin']);
 Route::get('/auth/check-handle', [AuthController::class, 'checkHandle']);
 
+// Guest-accessible haul view (returns sanitized data for non-authenticated users)
+Route::get('/hauls/{run}', [RunController::class, 'show']);
+Route::get('/runs/{run}', [RunController::class, 'show']);
+
+// Public profile (no auth required)
+Route::get('/users/{user}/public', [\App\Http\Controllers\Api\PublicProfileController::class, 'show']);
+
 // --- PROTECTED ROUTES (Token Required) ---
 Route::middleware('auth:sanctum')->group(function () {
 
     // User Profile
     Route::get('/me', [UserController::class, 'me']);
+    Route::put('/me', [UserController::class, 'update']);
+    Route::patch('/me', [UserController::class, 'update']);
+    Route::post('/me/settings', [UserController::class, 'updateSettings']);
     Route::get('/me/hauls', [RunController::class, 'myHauls']);
+    Route::get('/me/activities', [UserController::class, 'activities']);
 
     // Onboarding
     Route::post('/onboarding', [OnboardingController::class, 'store']);
@@ -30,11 +41,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Runs
     Route::get('/runs', [RunController::class, 'index']);
     Route::post('/runs', [RunController::class, 'store']);
-    Route::get('/runs/{run}', [RunController::class, 'show']);
 
     Route::get('/hauls', [RunController::class, 'index']);
     Route::post('/hauls', [RunController::class, 'store']);
-    Route::get('/hauls/{run}', [RunController::class, 'show']);
     Route::delete('/hauls/{run}', [RunController::class, 'destroy']);
     Route::get('/runs/{run}/activities', [RunActivityController::class, 'index']);
     Route::post('/runs/{run}/status', [RunStatusController::class, 'update']);

@@ -30,6 +30,7 @@ class RunActivityResource extends JsonResource
     protected function formatActivityMessage(): string
     {
         $userName = $this->user ? $this->user->name : 'Someone';
+        $storeName = $this->run?->store_name ?? 'the store';
 
         switch ($this->type) {
             case 'user_joined':
@@ -50,11 +51,26 @@ class RunActivityResource extends JsonResource
                 return "Host removed {$targetName}";
             case 'status_change':
                 $newStatus = $this->metadata['new'] ?? 'unknown';
-                return "Run status changed to {$newStatus}";
+                return $this->formatStatusMessage($userName, $newStatus, $storeName);
             case 'comment':
                 return "{$userName} left a comment";
             default:
                 return "Activity: {$this->type}";
         }
+    }
+
+    /**
+     * Format status change messages to be more descriptive.
+     */
+    protected function formatStatusMessage(string $userName, string $status, string $storeName): string
+    {
+        return match ($status) {
+            'prepping' => "{$userName} is preparing the haul",
+            'live' => "Haul is now live! Neighbors can join.",
+            'heading_back' => "{$userName} is heading back from {$storeName}",
+            'arrived' => "{$userName} has arrived! Time to collect.",
+            'completed' => "Haul completed! Thanks everyone 🎉",
+            default => "Haul status updated to {$status}",
+        };
     }
 }

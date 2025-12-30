@@ -29,6 +29,7 @@ class User extends Authenticatable
         'apple_id',
         'address_line_1',
         'postcode',
+        'bio',
         'avatar_path',
         'avatar_url',
         'signup_device_location',
@@ -135,5 +136,13 @@ class User extends Authenticatable
             ->join('run_items', 'run_commitments.run_item_id', '=', 'run_items.id')
             ->distinct('run_items.run_id')
             ->count('run_items.run_id');
+    }
+
+    /**
+     * Get reviews received by this user (as host).
+     */
+    public function reviews()
+    {
+        return $this->hasMany(Review::class, 'host_id');
     }
 }

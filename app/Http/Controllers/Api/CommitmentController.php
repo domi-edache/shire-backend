@@ -94,6 +94,27 @@ class CommitmentController extends Controller
             ], 403);
         }
 
+        // Time-based and payment status restrictions for participants leaving
+        if ($isOwner && !$isHost) {
+            // Check if payment has been marked
+            if ($commitment->payment_status !== 'unpaid') {
+                return response()->json([
+                    'message' => 'Cannot leave after marking payment. Contact the host.'
+                ], 403);
+            }
+
+            // Check 30-minute window
+            $joinedAt = $commitment->created_at;
+            $thirtyMinutesAgo = now()->subMinutes(30);
+            if ($joinedAt < $thirtyMinutesAgo) {
+                return response()->json([
+                    'message' => 'Cannot leave after 30 minutes. Contact the host.',
+                    'joined_at' => $joinedAt->toIso8601String(),
+                    'window_expired_at' => $joinedAt->addMinutes(30)->toIso8601String()
+                ], 403);
+            }
+        }
+
         try {
             DB::transaction(function () use ($commitment, $item, $run, $user, $isOwner) {
                 // Decrement units_filled
