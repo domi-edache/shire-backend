@@ -88,4 +88,12 @@ class Run extends Model
     {
         return $this->hasMany(RunActivity::class);
     }
+
+    /**
+     * Get all commitments for the run through its items.
+     */
+    public function commitments()
+    {
+        return $this->hasManyThrough(RunCommitment::class, RunItem::class);
+    }
 }

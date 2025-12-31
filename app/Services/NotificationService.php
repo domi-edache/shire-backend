@@ -6,6 +6,8 @@ use App\Models\Run;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\SimpleRunNotification;
 
 class NotificationService
 {
@@ -43,12 +45,21 @@ class NotificationService
      */
     public function notifyRunUpdate(Run $run, string $message): void
     {
-        // Get all users with commitments on this run's items
+        // Get all unique users with commitments on this run's items (excluding host)
         $buyers = User::whereHas('commitments', function ($query) use ($run) {
             $query->whereHas('item', function ($itemQuery) use ($run) {
                 $itemQuery->where('run_id', $run->id);
             });
-        })->get();
+        })
+            ->where('id', '!=', $run->user_id)
+            ->get();
+
+        if ($buyers->isNotEmpty()) {
+            \Illuminate\Support\Facades\Notification::send(
+                $buyers,
+                new \App\Notifications\SimpleRunNotification($run, 'Haul Update', $message)
+            );
+        }
 
         foreach ($buyers as $buyer) {
             Log::info("PUSH to Buyer [{$buyer->id}]: {$message}");

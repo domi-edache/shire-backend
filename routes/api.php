@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/social', [AuthController::class, 'socialLogin']);
 Route::get('/auth/check-handle', [AuthController::class, 'checkHandle']);
 
-// Guest-accessible haul view (returns sanitized data for non-authenticated users)
+// Guest-accessible haul view (controller manually authenticates if token provided)
 Route::get('/hauls/{run}', [RunController::class, 'show']);
 Route::get('/runs/{run}', [RunController::class, 'show']);
 
@@ -34,6 +34,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/me/settings', [UserController::class, 'updateSettings']);
     Route::get('/me/hauls', [RunController::class, 'myHauls']);
     Route::get('/me/activities', [UserController::class, 'activities']);
+    Route::get('/notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
+    Route::post('/notifications/read-all', [\App\Http\Controllers\Api\NotificationController::class, 'markAllAsRead']);
+    Route::post('/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markAsRead']);
 
     // Onboarding
     Route::post('/onboarding', [OnboardingController::class, 'store']);
@@ -47,6 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/hauls/{run}', [RunController::class, 'destroy']);
     Route::get('/runs/{run}/activities', [RunActivityController::class, 'index']);
     Route::post('/runs/{run}/status', [RunStatusController::class, 'update']);
+    Route::post('/runs/{run}/join', [RunController::class, 'join']);
 
     // Run Items
     Route::post('/runs/{run}/items', [RunItemController::class, 'store']);
@@ -67,3 +71,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/commitments/{commitment}/pay', [HandshakeController::class, 'markPaid']);
     Route::post('/commitments/{commitment}/confirm', [HandshakeController::class, 'confirmPayment']);
 });
+
+
+// Route and Run are already imported at the top of the file
+
+
+// Route and Run are already imported at the top of the file

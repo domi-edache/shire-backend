@@ -21,7 +21,8 @@ class HandshakeController extends Controller
         }
 
         $commitment->update([
-            'payment_status' => 'paid_marked'
+            'payment_status' => 'paid_marked',
+            'status' => 'paid_marked'
         ]);
 
         return response()->json([
@@ -46,7 +47,8 @@ class HandshakeController extends Controller
         }
 
         $commitment->update([
-            'payment_status' => 'confirmed'
+            'payment_status' => 'confirmed',
+            'status' => 'confirmed'
         ]);
 
         return response()->json([

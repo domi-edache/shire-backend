@@ -22,31 +22,31 @@ class CommitmentController extends Controller
 
         $quantity = $validated['quantity'];
 
-        // Stock check
-        $remaining = $item->units_total - $item->units_filled;
-
-        if ($quantity > $remaining) {
-            return response()->json([
-                'message' => 'Not enough stock available',
-                'available' => $remaining,
-                'requested' => $quantity
-            ], 400);
-        }
-
-        // Use database transaction for atomicity
+        // Use database transaction for atomicity and locking
         try {
             $commitment = DB::transaction(function () use ($request, $item, $quantity) {
+                // Lock the row to prevent race conditions
+                $lockedItem = RunItem::where('id', $item->id)->lockForUpdate()->first();
+
+                // Stock check inside the lock
+                $remaining = $lockedItem->units_total - $lockedItem->units_filled;
+
+                if ($quantity > $remaining) {
+                    // Throw specific exception to be caught
+                    throw new \Exception("Not enough stock available", 422);
+                }
+
                 // Create the commitment
                 $commitment = RunCommitment::create([
-                    'run_item_id' => $item->id,
+                    'run_item_id' => $lockedItem->id,
                     'user_id' => $request->user()->id,
                     'quantity' => $quantity,
-                    'total_amount' => $item->cost * $quantity,
+                    'total_amount' => $lockedItem->cost * $quantity,
                     'status' => 'pending',
                 ]);
 
-                // Increment units_filled
-                $item->increment('units_filled', $quantity);
+                // Increment units_filled (on the locked item)
+                $lockedItem->increment('units_filled', $quantity);
 
                 return $commitment;
             });
@@ -59,10 +59,11 @@ class CommitmentController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
+            $status = $e->getCode() === 422 ? 422 : 500;
             return response()->json([
-                'message' => 'Failed to create commitment',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage(),
+                'error' => $status === 500 ? $e->getMessage() : null
+            ], $status);
         }
     }
 

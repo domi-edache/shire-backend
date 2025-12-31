@@ -21,7 +21,7 @@ class RunStateService
         $run->save();
 
         // Determine system message based on status
-        $message = $this->getStatusMessage($newStatus);
+        $message = $this->getStatusMessage($run, $newStatus);
 
         if ($message) {
             // Create system chat message
@@ -43,14 +43,17 @@ class RunStateService
     /**
      * Get the system message for a given status.
      * 
+     * @param Run $run
      * @param string $status
      * @return string|null
      */
-    private function getStatusMessage(string $status): ?string
+    private function getStatusMessage(Run $run, string $status): ?string
     {
+        $hostName = $run->user->name ?? 'The host';
+
         return match ($status) {
-            'heading_back' => '⚡️ Status Update: The Runner is heading back!',
-            'arrived' => '📍 Status Update: The Runner has arrived. Check pickup instructions.',
+            'heading_back' => "⚡️ {$hostName} is heading back!",
+            'arrived' => "📍 {$hostName} is back! Ready for pickup.",
             default => null,
         };
     }

@@ -209,7 +209,24 @@ class RunController extends Controller
 
     public function show(Request $request, Run $run)
     {
-        $user = $request->user(); // null for guests
+        // Manual Sanctum auth for public routes - authenticate if token provided
+        $user = $request->user();
+        $tokenStr = $request->bearerToken();
+
+        if (!$user && $tokenStr) {
+            // Check if it's a hashed token (Sanctum default) or plain
+            $token = \Laravel\Sanctum\PersonalAccessToken::findToken($tokenStr);
+            if ($token) {
+                $user = $token->tokenable;
+            }
+        }
+
+        \Log::info('HaulDetail Auth Debug', [
+            'has_request_user' => $request->user() !== null,
+            'has_token_str' => $tokenStr !== null,
+            'token_preview' => $tokenStr ? substr($tokenStr, 0, 8) . '...' : 'none',
+            'found_user_id' => $user?->id,
+        ]);
 
         // Distance calculation only for authenticated users
         if ($user) {
@@ -233,13 +250,26 @@ class RunController extends Controller
             // Load relationships and check for my commitment
             $run->load(['user', 'items.commitments.user']);
             $myCommitment = null;
+            $userId = (int) $user->id;
+
             foreach ($run->items as $item) {
-                $commitment = $item->commitments->where('user_id', $user->id)->first();
+                $commitment = $item->commitments->first(function ($c) use ($userId) {
+                    return (int) $c->user_id === $userId;
+                });
                 if ($commitment) {
                     $myCommitment = $commitment;
                     break;
                 }
             }
+
+            // Debug logging
+            \Log::info('HaulDetail my_commitment check', [
+                'run_id' => $run->id,
+                'user_id' => $userId,
+                'found_commitment' => $myCommitment ? $myCommitment->id : null,
+                'payment_status' => $myCommitment ? $myCommitment->payment_status : 'N/A',
+            ]);
+
             $run->my_commitment = $myCommitment;
         } else {
             // Guest: no distance, no commitment
@@ -247,6 +277,9 @@ class RunController extends Controller
             $run->my_commitment = null;
             $run->load(['user', 'items.commitments.user']);
         }
+
+        // Attach the authenticated user to the run for RunResource to use
+        $run->authenticated_user = $user;
 
         return new RunResource($run);
     }
@@ -354,6 +387,104 @@ class RunController extends Controller
                 'message' => 'Failed to cancel haul',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Join a haul by claiming slots.
+     */
+    public function join(Request $request, Run $run)
+    {
+        $validated = $request->validate([
+            'slots' => 'required|integer|min:1',
+        ]);
+
+        $slots = $validated['slots'];
+        $user = $request->user();
+
+        // Cannot join own haul
+        if ($run->user_id === $user->id) {
+            return response()->json([
+                'message' => 'You cannot join your own haul.'
+            ], 422);
+        }
+
+        try {
+            DB::transaction(function () use ($run, $user, $slots) {
+                // Find anchor item (bulk_split or first item) with lock
+                $anchorItem = RunItem::where('run_id', $run->id)
+                    ->where(function ($q) {
+                        $q->where('type', 'bulk_split')->orWhereRaw('1=1');
+                    })
+                    ->orderByRaw("CASE WHEN type = 'bulk_split' THEN 0 ELSE 1 END")
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$anchorItem) {
+                    throw new \Exception('This haul has no items to join.', 422);
+                }
+
+                // Slot validation
+                $slotsTaken = $anchorItem->units_filled;
+                $totalSlots = $anchorItem->units_total;
+
+                if (($slotsTaken + $slots) > $totalSlots) {
+                    $remaining = $totalSlots - $slotsTaken;
+                    throw new \Exception("Not enough slots left. Only {$remaining} available.", 422);
+                }
+
+                // Check if user already has a commitment - update it instead of creating new
+                $existingCommitment = RunCommitment::where('run_item_id', $anchorItem->id)
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                $pricePerSlot = $anchorItem->cost / $anchorItem->units_total;
+
+                if ($existingCommitment) {
+                    // User already joined - add more slots to existing commitment
+                    $newQuantity = $existingCommitment->quantity + $slots;
+                    $newTotal = $pricePerSlot * $newQuantity;
+                    $existingCommitment->update([
+                        'quantity' => $newQuantity,
+                        'total_amount' => $newTotal,
+                    ]);
+                } else {
+                    // New commitment
+                    RunCommitment::create([
+                        'run_item_id' => $anchorItem->id,
+                        'user_id' => $user->id,
+                        'quantity' => $slots,
+                        'total_amount' => $pricePerSlot * $slots,
+                        'status' => 'pending',
+                        'payment_status' => 'unpaid',
+                    ]);
+                }
+
+                // Increment filled count
+                $anchorItem->increment('units_filled', $slots);
+            });
+
+            // Reload run with relationships for response
+            $run->load(['user', 'items.commitments.user']);
+
+            // Attach user's commitment so RunResource can serialize it
+            $myCommitment = null;
+            foreach ($run->items as $item) {
+                $commitment = $item->commitments->where('user_id', $user->id)->first();
+                if ($commitment) {
+                    $myCommitment = $commitment;
+                    break;
+                }
+            }
+            $run->my_commitment = $myCommitment;
+
+            return new RunResource($run);
+
+        } catch (\Exception $e) {
+            $status = $e->getCode() === 422 ? 422 : 500;
+            return response()->json([
+                'message' => $e->getMessage()
+            ], $status);
         }
     }
 }
